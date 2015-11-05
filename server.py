@@ -1,12 +1,10 @@
 import tornado
 import tornado.ioloop
-import tornado.web
+# import tornado.web
 import os
 import uuid
 import re
-from tornado.web import stream_request_body, asynchronous
-from tornado.httputil import HTTPHeaders
-from multipart import MultipartParser
+from tornado.web import RequestHandler, stream_request_body, asynchronous
 
 _UPLOAD_PATH = './upload'
 UPLOADS_KEYS = {}
@@ -19,13 +17,13 @@ def _run_once(f):
     wrapper.has_run = False
     return wrapper
 
-class UploadForm(tornado.web.RequestHandler):
+class UploadForm(RequestHandler):
     def get(self):
         self.render("upload_form.html")
 
 
-@tornado.web.stream_request_body
-class Upload(tornado.web.RequestHandler):
+@stream_request_body
+class Upload(RequestHandler):
 
     def prepare(self):
         self.file = open(os.path.join(_UPLOAD_PATH, uuid.uuid4().hex), 'wb')
