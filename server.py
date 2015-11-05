@@ -27,14 +27,13 @@ class Upload(RequestHandler):
 
     def prepare(self):
         self.file = open(os.path.join(_UPLOAD_PATH, uuid.uuid4().hex), 'wb')
-        self.content_length = self.request.headers.get('Content-Length')
+        self.content_length = int(self.request.headers.get('Content-Length'))
         self.original_filename = ''
         self.content_type = ''
         self.read_bytes = 0
         self.chunk_number = 0
 
     def post(self):
-        print(self.file.name, self.original_filename, self.content_type)
         self.finish()
 
     def data_received(self, chunk):
@@ -44,6 +43,7 @@ class Upload(RequestHandler):
         if self.read_bytes > 0:
             try:
                 chunk = self._get_head(chunk)
+                chunk = self._clear_end(chunk)
             except ValueError as e:
                 print(str(e))
         else:
@@ -54,6 +54,10 @@ class Upload(RequestHandler):
         if self.content_length == self.read_bytes:
             self.chunk_number = 0
             self.file.close()
+            newname = '{}_{}'.format(self.file.name, self.original_filename)
+            os.rename(self.file.name, newname)
+            print('Uploaded: {} "{}", {} bytes'.format(newname, self.content_type, self.content_length))
+
 
     @asynchronous
     def _get_head(self, chunk):
@@ -91,7 +95,16 @@ class Upload(RequestHandler):
                 self.content_type = ct_match.group(1)
             except Exception as e:
                 print('Error: ', str(e))
+        return chunk
 
+    @asynchronous
+    def _clear_end(self, chunk):
+        if self.content_length == self.read_bytes:
+            end_l = chunk[::-1].partition(b'------\n\r')
+            if not end_l[-1]:  # subbytes not found
+                # https://docs.python.org/3/library/stdtypes.html#bytes.partition
+                raise ValueError
+            chunk = end_l[2][::-1]  # replace with body
         return chunk
 
 
