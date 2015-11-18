@@ -1,11 +1,11 @@
 import tornado
 import tornado.ioloop
-import contextlib
 import os
 import uuid
 import re
-from tornado.web import RequestHandler, stream_request_body, asynchronous, gen
+from tornado.web import RequestHandler, stream_request_body, gen
 #
+# import contextlib
 # import tornado.stack_context
 #
 # Неясно пока для чего эта бандура
@@ -16,13 +16,26 @@ from tornado.options import define, options
 
 
 _UPLOAD_PATH = './upload'
-UPLOAD_KEYS = []
+UPLOAD_KEYS = {}  # {'filename': UploadFile obj}
 MAX_BUFFER_SIZE = 7813988580 # allowed file size in bytes
 
 
 class UploadForm(RequestHandler):
     def get(self):
         self.render("upload_form.html")
+
+
+class UploadPercentages(RequestHandler):
+
+    @gen.coroutine
+    def get(self):
+        try:
+            id = str(self.get_argument('id'))
+            file = UPLOAD_KEYS.get(id, None)
+        except Exception as e:
+            raise('Exception "{0}" occurred while getting file upload percentages!'.format(str(e)))
+        p = yield file.percentages()
+        self.write('{}%'.format(p))
 
 
 class UploadFile():
@@ -39,8 +52,11 @@ class UploadFile():
         try:
             self.content_length = int(self.request.headers.get('Content-Length'))
         except Exception as e:
-            # logging.error('Exception "{0}" occurred while reading header "Content-Length"!'.format(str(e)))
             raise('Exception "{0}" occurred while reading header "Content-Length"!'.format(str(e)))
+
+    @gen.coroutine
+    def percentages(self):
+        return int(round(self.read_bytes / self.content_length, 2) * 100)
 
 
 @stream_request_body
@@ -49,11 +65,10 @@ class Upload(RequestHandler):
     @gen.coroutine
     def prepare(self):
         self.file = UploadFile(self.request)
-        UPLOAD_KEYS.append(self.file.filename)
+        UPLOAD_KEYS[self.file.filename] = self.file
 
     @gen.coroutine
     def post(self):
-        # self.finish()
         print('ok:')
         print(UPLOAD_KEYS)
 
@@ -82,6 +97,8 @@ class Upload(RequestHandler):
                 raise tornado.web.HTTPError(500)
 
         self.file.file.write(chunk)
+        perc = yield self.file.percentages()
+        print('{}%'.format(perc))
 
         if self.file.read_bytes == self.file.content_length:
             self.file.chunk_number = 0
@@ -120,6 +137,7 @@ if __name__ == "__main__":
     app = tornado.web.Application([
         (r"/", UploadForm),
         (r"/upload", Upload),
+        (r"/upload_stat", UploadPercentages),
     ], debug=True)
 
     opts = tornado.options.parse_command_line()
