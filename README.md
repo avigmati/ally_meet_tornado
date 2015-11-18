@@ -2,4 +2,4 @@
 try async
 
 run with these params:
---log_file_prefix=/path/to/log.txt
+server.py --log_file_prefix=/path/to/log.txt
