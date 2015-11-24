@@ -1,19 +1,50 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Upload Form</title>
+    <meta http-equiv="Content-Type" charset="UTF-8"/>
+    <title>ally meet tornado</title>
+    <script>
+        "use strict";
+
+        // http://stackoverflow.com/a/14944262/1356067
+        function rndstr(l) {
+            return Array.apply(0, Array(l)).map(function() {
+                return (function(charset){
+                    return charset.charAt(Math.floor(Math.random() * charset.length))
+                }('abcdefghijklmnopqrstuvwxyz0123456789'));
+            }).join('');
+        }
+
+        // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/Using_XMLHttpRequest#Submitting_forms_and_uploading_files
+        function uploadComplete() {
+            console.log(this.responseText);
+        }
+
+        function AJAXSubmit(oFormElement) {
+            var key = rndstr(16);
+            oFormElement.action += '?key='+key;
+            var xhr = new XMLHttpRequest();
+            xhr.onload = uploadComplete;
+            xhr.open("post", oFormElement.action);
+            xhr.send(new FormData(oFormElement));
+        }
+
+    </script>
 </head>
+
 <body>
 
+<h3>throw things in the tornado</h3>
 
-<h1>Select & Upload</h1>
-<form enctype="multipart/form-data" action="/upload?uploadKey=test1" method="post">
-<!--<form action="/upload?uploadKey=test1" method="post">-->
-File: <input type="file" name="fileobj" />
-<br />
-<br />
-<input type="submit" value="upload" />
+<form action="/upload" method="post" enctype="multipart/form-data" onsubmit="AJAXSubmit(this); return false;">
+    <p>
+        who next?
+        <input type="file" name="file">
+    </p>
+    <p>
+        <input type="submit" value="Submit"/>
+    </p>
 </form>
 
 </body>

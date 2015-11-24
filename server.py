@@ -14,13 +14,44 @@ from tornado.web import RequestHandler, stream_request_body, gen
 import logging
 from tornado.options import define, options
 
+define('upload_path', default='./upload', help='Upload path')
+define('port', default=8888, help='Listen on this port')
+define('max_buffer_size', default=1024*1024*1024*9, help='Max allowed file size in bytes')
 
-_UPLOAD_PATH = './upload'
 UPLOAD_KEYS = {}  # {'filename': UploadFile obj}
-MAX_BUFFER_SIZE = 7813988580 # allowed file size in bytes
+
+class UploadFile():
+
+    def __init__(self, request):
+        self.request = request
+        self.filename = uuid.uuid4().hex
+        self.filepath = os.path.join(options.upload_path, self.filename)
+        self.original_filename = ''
+        self.content_type = ''
+        self.read_bytes = 0
+        self.chunk_number = 0
+        self.file = open(self.filepath, 'wb')
+
+        self.client_key = self.request.query_arguments.get('key', None)
+        if not self.client_key:
+            raise('No "key" (GET) parameter!')
+        else:
+            self.client_key = self.client_key[0]
+            print(self.client_key)
+
+        try:
+            self.content_length = int(self.request.headers.get('Content-Length'))
+        except Exception as e:
+            raise('Exception "{0}" occurred while read header "Content-Length"!'.format(str(e)))
+
+    @gen.coroutine
+    def percentages(self):
+        return int(round(self.read_bytes / self.content_length, 2) * 100)
 
 
 class UploadForm(RequestHandler):
+
+    @gen.coroutine
     def get(self):
         self.render("upload_form.html")
 
@@ -30,33 +61,12 @@ class UploadPercentages(RequestHandler):
     @gen.coroutine
     def get(self):
         try:
-            id = str(self.get_argument('id'))
-            file = UPLOAD_KEYS.get(id, None)
+            client_key = str(self.get_argument('key'))
+            file = UPLOAD_KEYS.get(client_key, None)
+            p = yield file.percentages() if file else ''
+            self.write('{}%'.format(p))
         except Exception as e:
-            raise('Exception "{0}" occurred while getting file upload percentages!'.format(str(e)))
-        p = yield file.percentages()
-        self.write('{}%'.format(p))
-
-
-class UploadFile():
-
-    def __init__(self, request):
-        self.request = request
-        self.filename = uuid.uuid4().hex
-        self.filepath = os.path.join(_UPLOAD_PATH, self.filename)
-        self.original_filename = ''
-        self.content_type = ''
-        self.read_bytes = 0
-        self.chunk_number = 0
-        self.file = open(self.filepath, 'wb')
-        try:
-            self.content_length = int(self.request.headers.get('Content-Length'))
-        except Exception as e:
-            raise('Exception "{0}" occurred while reading header "Content-Length"!'.format(str(e)))
-
-    @gen.coroutine
-    def percentages(self):
-        return int(round(self.read_bytes / self.content_length, 2) * 100)
+            raise('Exception "{0}" occurred while get file upload percentages!'.format(str(e)))
 
 
 @stream_request_body
@@ -64,13 +74,17 @@ class Upload(RequestHandler):
 
     @gen.coroutine
     def prepare(self):
-        self.file = UploadFile(self.request)
-        UPLOAD_KEYS[self.file.filename] = self.file
+        try:
+            self.file = UploadFile(self.request)
+        except Exception as e:
+            raise tornado.web.HTTPError(500)
+        UPLOAD_KEYS[self.file.client_key] = self.file
 
     @gen.coroutine
     def post(self):
         print('ok:')
         print(UPLOAD_KEYS)
+        self.write('{}'.format(UPLOAD_KEYS))
 
     @gen.coroutine
     def data_received(self, chunk):
@@ -81,7 +95,7 @@ class Upload(RequestHandler):
             try:
                 chunk = yield self._get_head(chunk)
             except Exception as e:
-                logging.error('Exception "{0}" occurred while parsing first chunk.\n'
+                logging.error('Exception "{0}" occurred while parse first chunk.\n'
                               'Readed: {1} bytes.\nTraceback:'
                               .format(str(e), self.file.read_bytes))
                 raise tornado.web.HTTPError(500)
@@ -91,20 +105,18 @@ class Upload(RequestHandler):
                 chunk = yield self._clear_end(chunk)
 
             except Exception as e:
-                logging.error('Exception "{0}" occurred while parsing last chunk.\n'
+                logging.error('Exception "{0}" occurred while parse last chunk.\n'
                               'Readed: {1} bytes.\nTraceback:'
                               .format(str(e), self.file.read_bytes))
                 raise tornado.web.HTTPError(500)
 
         self.file.file.write(chunk)
-        perc = yield self.file.percentages()
-        print('{}%'.format(perc))
 
         if self.file.read_bytes == self.file.content_length:
             self.file.chunk_number = 0
             self.file.file.close()
             newname = '{}_{}'.format(self.file.filename, self.file.original_filename)
-            os.rename(self.file.filepath, os.path.join(_UPLOAD_PATH, newname))
+            os.rename(self.file.filepath, os.path.join(options.upload_path, newname))
             msg = 'Uploaded: {} "{}", {} bytes'.format(newname, self.file.content_type, self.file.content_length)
             logging.info(msg)
             print(msg)
@@ -140,6 +152,6 @@ if __name__ == "__main__":
         (r"/upload_stat", UploadPercentages),
     ], debug=True)
 
-    opts = tornado.options.parse_command_line()
-    app.listen(8888, max_buffer_size=MAX_BUFFER_SIZE)
+    options.parse_command_line()
+    app.listen(options.port, max_buffer_size=options.max_buffer_size)
     tornado.ioloop.IOLoop.instance().start()
